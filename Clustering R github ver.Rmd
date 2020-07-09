@@ -1,0 +1,180 @@
+---
+title: "Assignment-3"
+author: "Karen Gao, Katherine Li, Qing Luan"
+date: "11/13/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## *PART1:Collect the Data*
+#### import data
+```{r, message=FALSE, warning=FALSE}
+#install.packages(c("stats","mice","factoextra","tidyverse"))
+library(readr)
+CustomerScore <- read_csv("https://s3.amazonaws.com/notredame.analytics.data/mallcustomers.csv")
+```
+
+## *PART2:Explore and Prepare the Data*
+#### 1. Using a predictive approach, impute the missing values. 
+
+#test if gender has missing values.
+```{r,message=FALSE, warning=FALSE}
+library(dplyr)
+library(mice)
+CustomerScore1<- CustomerScore%>%
+  mutate(Gender=as.factor(Gender))
+summary(CustomerScore1)
+```
+
+#mice as a predictive approach, allowed us to impute the missing gender variable in this case. After imputation, we use summary to test if the missing variable is approperiately imputated.
+```{r}
+imputed_CustomerScore1 <- mice(CustomerScore1,m=1,maxit=5,meth='logreg',seed=1234)
+complete_CustomerScore1<- mice::complete(imputed_CustomerScore1)
+summary(complete_CustomerScore1)
+```
+
+
+#### 2. Convert these values from strings to numbers.
+
+#In order to convert a string with sign and coma into integer, we first changed them to pure number and then do the convertion.
+```{r}
+library(stringr)
+complete_CustomerScore1<- complete_CustomerScore1%>%
+  mutate(Income=str_replace_all(Income,"USD",""))%>%
+  mutate(Income=str_replace_all(Income, ",",""))%>%
+  mutate(Income=as.numeric(Income))
+```
+
+
+## *PART III: Segment Customers*
+##### 1. Using the k-means clustering approach, segment the retail card customers into 3 clusters.
+
+#We create a new data with only the income and spendingscore in it.
+#In order to avoid features with large ranges from dominating our model,
+#we normalize features in the new dataset using the z-score normalization.
+```{r}
+complete_CustomerScore2 <- complete_CustomerScore1%>%
+  select(-CustomerID,-Gender,-Age)
+
+complete_CustomerScore2<- scale(complete_CustomerScore2)
+summary(complete_CustomerScore2)
+
+#install.packages("factoextra")
+library(factoextra)
+set.seed(1234)
+k_3 <- kmeans(complete_CustomerScore2, centers=3, nstart = 25)
+```
+
+
+#### 2. Create a visualization of the 3 clusters. 
+
+```{r}
+fviz_cluster(k_3, data = complete_CustomerScore2,ggthem=theme_classic(),labelsize=0)
+```
+
+
+#### 3. Using the elbow method, determine the appropriate number of clusters for your data.
+
+```{r,message=FALSE, warning=FALSE}
+wcss <- vector()
+
+n = 20
+set.seed(1234)
+
+for(k in 1:n) {
+  wcss[k] <- sum(kmeans(complete_CustomerScore2, k)$withinss)
+}
+
+tibble(value = wcss) %>%
+  ggplot(mapping=aes(x=seq(1,length(wcss)), y=value)) +
+  geom_point()+
+  geom_line() +
+  labs(title = "The Elbow Method", y = "WCSS", x = "Number of Clusters (k)" ) +
+  theme_minimal()
+```
+
+#### 4. Based on the result of the elbow method, create a new visualization that represents the suggested number of clusters.
+From the result of the elbow method, we believe the best number of clusters would be 5. 
+
+```{r}
+set.seed(1234)
+k_5 <- kmeans(complete_CustomerScore2, centers=5, nstart = 25)
+fviz_cluster(k_5, data = complete_CustomerScore2,ggthem=theme_classic(),labelsize = 0)
+```
+
+## *PART IV: Interpret the Results*
+#### 1. Based on the cluster visualization from subsection 4 above, what label would you assign to each cluster?
+
+Based on the x and y axes in the cluster visualization, we can label cluster 1 as "low income & high spending score", cluster
+2 as "medium income & medium spending score", cluster 3 as "high income & low spending score", cluster 4 as "high income & 
+high spending score", and cluster 5 as "low income & low spending score".
+
+
+#### 2. How does the average age and gender distribution for each cluster compare to that of the overall data set?
+
+cluster 1: low income & high spending score (Younger females dominate this cluster.)
+
+cluster 2: medium income & medium spending score (Medium aged females and males equally distributed in this cluster.)
+
+cluster 3: high income & low spending score (Medium aged males dominate this cluster.)
+
+cluster 4: high income & high spending score (30 years old females and males equally distributed in this cluster.)
+
+cluster 5: low income & low spending score (45 years old females dominate this cluster.)
+
+```{r}
+complete_CustomerScore1$cluster <- k_5$cluster
+
+complete_CustomerScore1%>%
+  summarise(mean(Age))
+
+complete_CustomerScore1%>%
+  group_by(cluster)%>%
+  summarise(mean(Age))
+
+complete_CustomerScore1 <- complete_CustomerScore1 %>%
+  mutate(female = ifelse(Gender == 'Female',1,0)) %>%
+  mutate(male = ifelse(Gender == 'Male',1,0))
+
+complete_CustomerScore1 %>%
+  summarize(female = mean(female))
+
+complete_CustomerScore1 %>%
+  group_by(cluster)%>%
+  summarize(female = mean(female))
+
+complete_CustomerScore1 %>%
+  summarize(male = mean(male))
+
+complete_CustomerScore1 %>%
+  group_by(cluster)%>%
+  summarize(male = mean(male))
+
+```
+
+#### 3. Based on the results of your work, what recommendations would you make to Acme Holdings?
+
+If viewing the result from a standpoint about how to give targeted coupons and special discounts at a number of boutique stores, we recommend Acme Holdings as follows.
+
+Cluster 1: This group is made up of customers in their 20s, and mostly, about 77.3% of females. Since they have low income and high spending score relatively, Acme should feature coupons and discounts associated with brands that offer trendy but not neccessarily expensive goods. For example, some high street brands should be the ones that Acme focuses on promoting here. Additionally, since most of these customers would be young students and professionals who tend to follow trends on a daily basis, coupons for these customers are better to be spread throughout the year rather than only being distributed during certain time of a year like the holiday season. 
+
+Cluster 2: This cluster is made up of customers in their 40s, and the gender distribution is about equal, with slightly more females. Most of these customers tend to be at the earlier stage of starting their own families, or on their most critical stages in their career trajectories. Thus, promotions for these customers could be associated with stores that offer products that are of higher quality. Also, coupons for stores of kid products could also be included since as a matter of fact, prices of newborns-related products are especially skyrocketing these days. Plus, although these customers are only at the medium spending level at the moment, they are the potential candidates who would become high income and high spending. Thus, offering coupons and discounts that would solidify their loyalty to this mall is also another way to ultimately increase and even better, sustain the mall's long-term profit. Specific extra benefits that could be offered to these customers include holding family day events on weekends, and etc.
+
+Cluster 3: This cluster is made up of customers in their 40s and around 62.9% of them are males. They are high income but not spending much at the mall. This cluster is actually the group that Acme should pay attention to and think about strategies to gain more from. Intuitively, customers from this group would not like to be bothered too much by receiving too many promotions. They tend to not have that much spare time to visit the mall at high frequencies. Thus, extremely targeted promotions would be expected and preferred. Acme could send out promotions related with products of extremely high quality, such as high end tailored suits, or golf related products. Also, these customers tend to require faster services. So building or bettering the mall's digital services could be a huge plus to this group. Moreover, personalized experiences would appear attractive to this group - Acme could think about expanding services into this field, only if the costs would be balanced out by the profit it brings in in the near future though. 
+
+Cluster 4: This group of customers is primarily what the mall is relied on. They are mostly in their 30s, and equally distributed in terms of genders. Acme probably would not need to send out that many discounts or coupons since these customers tend to buy things no matter how high the prices are. But Acme do need to think about how to improve customer services for this group especially if the mall wants to sustain the relationships with them. For instance, offering personalized shopping experience would be a plus. Also, Acme could consider builidng exclusive lounge areas in the mall so that the mall could better host these customers. Moreover, if these customers are able to collect store/mall credits through the retail card, they would have more loyalty to the mall. Acme could think about giving back rewards based on the mall credits accumulated to the customers as well.
+
+Cluster 5: This group of customers typically have low income and relatively low spending score. They are mostly females around the age of 45. They tend to be more cost sensitive, so Acme should be mindful of giving out the best deals to this particular grop of customers. Also, the timing to send out brochures of deals could be around special occassions in a year, such as the holiday season would be a perfect time. Products related to these deals could primarily include clothes that are of decent quality but not high prices, home goods, and etc. 
+
+If viewing from a more traditional marketing perspective, first off, Acme Holdings needs to focus on the cluster groups that showcase high spending scores, which are cluster 1 and cluster 4 in our case. Further, out of the high spending customers, Acme Holdings needs to focus on those who have high income simultaneously - high individual earning power implies stability in spending habits. Therefore, cluster 4 is what Acme Holdings should mainly focus on. The average age of cluster 4 is 32.7, which is slightly younger than the mean age of all. However, the average age of cluster 4 is the only one that falls into the 30-something range when compared with other four clusters. Thus, age could be an essential factor to consider when devising the marketing strategies for Acme. Moving onto the factor gender, the female-to-male ratio in cluster 4 is 0.513 to 0.487, which is close to 50/50 and similar to the gender distribution of the overall dataset. So on this stage, gender might not be taken as a key factor to consider for the design of the marketing campaign. However, based on these two aspects, the recommendations for Acme Holdings are as follows. 
+1. Distribute more marketing budget to promote those brands that intrigue people who are in their 30s, have high earning ability, and perform high spending patterns. 
+2. The mall can work on building their image towards the direction that best fits the taste of the aforementioned group. In this way, the mall could not only attracts customers that would buy more; it could also attract more brands, which would continuously attract more customers, to join. 
+3. Evenly split the marketing efforts into targeting both female and male customers who are in their 30s. Strategies as such include the content of general advertisements, offline and online especially themed events, promotion offers and sales on special occasions and holiday seasons, and etc.
+4. Since it is fairly safe to say a majority of customers in cluster 4 are working professionals, it is very likely that they would pursue convenience for a better user experience. So Acme should consider to shift focus, and digitize traditional marketing methods.
+
+However, extremely detailed targetting might not be the best solution when it comes to shopping mall marketing. From this perspective, Acme could widen up the scope of their targets to a certain extent. In this case, from the data and analysis, Acme should also put more marketing weight on cluster 2, the "medium income and medium spending effort" group. 
+
+
